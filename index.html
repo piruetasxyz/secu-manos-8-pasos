@@ -6,6 +6,7 @@
   <title>secu-manos-8-pasos</title>
   <script src="bibliotecas/p5.min.js"></script>
   <script src="bibliotecas/ml5.min.js"></script>
+  <script src="bibliotecas/Tone.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -63,8 +64,13 @@
       color: #000;
     }
 
+    #pasos button.actual {
+      border-color: #f00;
+    }
+
     #pasos button:focus-visible,
-    #deteccion:focus-visible {
+    #controles button:focus-visible,
+    #tempo:focus-visible {
       outline: 4px solid #f00;
       outline-offset: -8px;
     }
@@ -75,12 +81,14 @@
 
     #controles {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 16px;
+      max-width: 960px;
       margin-top: 16px;
     }
 
-    #deteccion {
+    #controles button {
       font: inherit;
       text-transform: uppercase;
       background: #000;
@@ -90,9 +98,56 @@
       cursor: pointer;
     }
 
-    #deteccion[aria-pressed="true"] {
+    #controles button[aria-pressed="true"] {
       background: #fff;
       color: #000;
+    }
+
+    #control-tempo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-transform: uppercase;
+    }
+
+    #tempo {
+      appearance: none;
+      width: 240px;
+      height: 32px;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    #tempo::-webkit-slider-runnable-track {
+      height: 4px;
+      background: #000;
+    }
+
+    #tempo::-moz-range-track {
+      height: 4px;
+      background: #000;
+    }
+
+    #tempo::-webkit-slider-thumb {
+      appearance: none;
+      width: 16px;
+      height: 32px;
+      margin-top: -14px;
+      background: #000;
+      border: none;
+      border-radius: 0;
+    }
+
+    #tempo::-moz-range-thumb {
+      width: 16px;
+      height: 32px;
+      background: #000;
+      border: none;
+      border-radius: 0;
+    }
+
+    #valor-tempo {
+      min-width: 8ch;
     }
   </style>
 </head>
@@ -104,6 +159,12 @@
   <div id="pasos"></div>
 
   <div id="controles">
+    <button id="tocar" aria-pressed="false">tocar: no</button>
+    <label id="control-tempo">
+      tempo
+      <input id="tempo" type="range" min="20" max="200" step="1" value="100">
+      <span id="valor-tempo">100 bpm</span>
+    </label>
     <button id="deteccion" aria-pressed="true">manos: sí</button>
     <p id="estado">esperando cámara</p>
   </div>
@@ -134,6 +195,9 @@
 
     const cantidadPasos = 8;
     const estadoPasos = new Array(cantidadPasos).fill(false);
+
+    // hihat cerrado de freesound, ver sonidos/CREDITOS.md
+    const archivoHihat = "sonidos/hihat-cerrado.mp3";
 
     const contenedorPasos = document.getElementById("pasos");
     const botonDeteccion = document.getElementById("deteccion");
@@ -172,6 +236,46 @@
         boton.setAttribute("aria-pressed", String(estadoPasos[i]));
       });
     }
+
+    // secuenciador: recorre los pasos 1-8 en loop, un paso por corchea (8 pasos = 1 compás de 4/4)
+    const botonTocar = document.getElementById("tocar");
+    const deslizadorTempo = document.getElementById("tempo");
+    const valorTempo = document.getElementById("valor-tempo");
+    const transporte = Tone.getTransport();
+    const hihat = new Tone.Player(archivoHihat).toDestination();
+
+    function marcarPasoActual(pasoActual) {
+      botonesPasos.forEach((boton, i) => {
+        boton.classList.toggle("actual", i === pasoActual);
+      });
+    }
+
+    const secuencia = new Tone.Sequence((tiempo, paso) => {
+      if (estadoPasos[paso] && hihat.loaded) hihat.start(tiempo);
+      Tone.getDraw().schedule(() => marcarPasoActual(paso), tiempo);
+    }, [0, 1, 2, 3, 4, 5, 6, 7], "8n");
+    secuencia.start(0);
+
+    transporte.bpm.value = Number(deslizadorTempo.value);
+
+    deslizadorTempo.addEventListener("input", () => {
+      const bpm = Number(deslizadorTempo.value);
+      transporte.bpm.value = bpm;
+      valorTempo.textContent = bpm + " bpm";
+    });
+
+    botonTocar.addEventListener("click", async () => {
+      await Tone.start();
+      const tocando = transporte.state !== "started";
+      if (tocando) {
+        transporte.start();
+      } else {
+        transporte.stop();
+        marcarPasoActual(-1);
+      }
+      botonTocar.setAttribute("aria-pressed", String(tocando));
+      botonTocar.textContent = tocando ? "tocar: sí" : "tocar: no";
+    });
 
     function distancia(a, b) {
       return Math.hypot(a.x - b.x, a.y - b.y);
