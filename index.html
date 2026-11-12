@@ -8,6 +8,10 @@
   <script src="bibliotecas/ml5.min.js"></script>
   <script src="bibliotecas/Tone.js"></script>
   <style>
+    :root {
+      --ancho: 560px;
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -27,12 +31,12 @@
       font-weight: normal;
       text-transform: uppercase;
       border-bottom: 4px solid #000;
-      padding-bottom: 8px;
-      margin-bottom: 16px;
+      padding-bottom: 4px;
+      margin-bottom: 8px;
     }
 
     #lienzo {
-      max-width: 960px;
+      max-width: var(--ancho);
       border: 4px solid #000;
       background: #000;
       line-height: 0;
@@ -45,13 +49,14 @@
     #pasos {
       display: grid;
       grid-template-columns: minmax(7ch, auto) repeat(8, 1fr);
-      gap: 8px;
-      max-width: 960px;
+      gap: 4px;
+      max-width: var(--ancho);
       margin-top: 8px;
     }
 
     #pasos button.nombre-pista {
       font: inherit;
+      font-size: 12px;
       text-transform: uppercase;
       background: #fff;
       color: #000;
@@ -63,12 +68,13 @@
     #pasos button.nombre-pista[aria-pressed="true"] {
       background: #000;
       color: #fff;
-      border-color: #f00;
+      border-color: #80f;
     }
 
     #pasos button.paso {
       font: inherit;
-      aspect-ratio: 1;
+      font-size: 12px;
+      height: 28px;
       background: #000;
       color: #fff;
       border: 4px solid #000;
@@ -81,13 +87,13 @@
     }
 
     #pasos button.paso.actual {
-      border-color: #f00;
+      border-color: #80f;
     }
 
     #pasos button:focus-visible,
     #controles button:focus-visible,
     #tempo:focus-visible {
-      outline: 4px solid #f00;
+      outline: 4px solid #80f;
       outline-offset: -8px;
     }
 
@@ -99,9 +105,9 @@
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 16px;
-      max-width: 960px;
-      margin-top: 16px;
+      gap: 8px 16px;
+      max-width: var(--ancho);
+      margin-top: 8px;
     }
 
     #controles button {
@@ -110,7 +116,7 @@
       background: #000;
       color: #fff;
       border: 4px solid #000;
-      padding: 8px 16px;
+      padding: 4px 12px;
       cursor: pointer;
     }
 
@@ -128,7 +134,7 @@
 
     #tempo {
       appearance: none;
-      width: 240px;
+      width: 160px;
       height: 32px;
       background: transparent;
       cursor: pointer;
