@@ -104,7 +104,7 @@
 
     #pasos button:focus-visible,
     #controles button:focus-visible,
-    #tempo:focus-visible {
+    #controles input[type="range"]:focus-visible {
       outline: 4px solid #80f;
       outline-offset: -8px;
     }
@@ -137,14 +137,15 @@
       color: #000;
     }
 
-    #control-tempo {
+    #control-tempo,
+    #control-cercania {
       display: flex;
       align-items: center;
       gap: 8px;
       text-transform: uppercase;
     }
 
-    #tempo {
+    #controles input[type="range"] {
       appearance: none;
       width: 160px;
       height: 32px;
@@ -152,17 +153,17 @@
       cursor: pointer;
     }
 
-    #tempo::-webkit-slider-runnable-track {
+    #controles input[type="range"]::-webkit-slider-runnable-track {
       height: 4px;
       background: #000;
     }
 
-    #tempo::-moz-range-track {
+    #controles input[type="range"]::-moz-range-track {
       height: 4px;
       background: #000;
     }
 
-    #tempo::-webkit-slider-thumb {
+    #controles input[type="range"]::-webkit-slider-thumb {
       appearance: none;
       width: 16px;
       height: 32px;
@@ -172,7 +173,7 @@
       border-radius: 0;
     }
 
-    #tempo::-moz-range-thumb {
+    #controles input[type="range"]::-moz-range-thumb {
       width: 16px;
       height: 32px;
       background: #000;
@@ -180,7 +181,8 @@
       border-radius: 0;
     }
 
-    #valor-tempo {
+    #valor-tempo,
+    #valor-cercania {
       min-width: 8ch;
     }
   </style>
@@ -198,6 +200,11 @@
       tempo
       <input id="tempo" type="range" min="20" max="200" step="1" value="100">
       <span id="valor-tempo">100 bpm</span>
+    </label>
+    <label id="control-cercania">
+      cercanía
+      <input id="cercania" type="range" min="0.06" max="0.35" step="0.01" value="0.16">
+      <span id="valor-cercania">0.16</span>
     </label>
     <button id="deteccion" aria-pressed="true">manos: sí</button>
     <p id="estado">esperando cámara</p>
@@ -249,9 +256,20 @@
     // distancia a la cámara según el tamaño aparente de la palma (muñeca → nudillo
     // del dedo medio, como fracción del alto del video): lejos de la cámara la mano
     // solo muestra una vista previa, cerca de la cámara reemplaza los pasos.
-    // sobre umbralCerca pasa a reemplazar, bajo umbralLejos vuelve a vista previa
-    const umbralCerca = 0.3;
-    const umbralLejos = 0.25;
+    // sobre umbralCerca pasa a reemplazar, bajo umbralLejos vuelve a vista previa.
+    // umbralCerca se ajusta con el deslizador de cercanía: más bajo = reemplaza desde más lejos
+    const deslizadorCercania = document.getElementById("cercania");
+    const valorCercania = document.getElementById("valor-cercania");
+    let umbralCerca;
+    let umbralLejos;
+
+    function actualizarCercania() {
+      umbralCerca = Number(deslizadorCercania.value);
+      umbralLejos = umbralCerca * 0.85;
+      valorCercania.textContent = umbralCerca.toFixed(2);
+    }
+    deslizadorCercania.addEventListener("input", actualizarCercania);
+    actualizarCercania();
 
     // estado de cada mano: franja, desde cuándo está en ella, si está cerca
     // de la cámara, tamaño de la palma y sus 4 pasos en vista previa
@@ -538,7 +556,7 @@
 
       // medidor de cercanía bajo cada muñeca, con marca en umbralCerca
       const anchoMedidor = 80;
-      const tope = umbralCerca * 1.5;
+      const tope = Number(deslizadorCercania.max) * 1.2;
       for (const medidor of medidores) {
         const x = medidor.x * escala - anchoMedidor / 2;
         const y = medidor.y * escala + 16;
