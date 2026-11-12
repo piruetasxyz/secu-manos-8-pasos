@@ -86,6 +86,18 @@
       color: #000;
     }
 
+    /* pasos en vista previa: borde punteado, encendidos en morado */
+    #pasos button.paso.previa {
+      border-style: dashed;
+      border-color: #80f;
+      background: #000;
+      color: #fff;
+    }
+
+    #pasos button.paso.previa.previa-encendida {
+      background: #80f;
+    }
+
     #pasos button.paso.actual {
       border-color: #80f;
     }
@@ -234,9 +246,18 @@
     // de camino a otra no la modifica
     const margenFranja = 0.04;
     const msPermanencia = 300;
+    // distancia a la cámara según el tamaño aparente de la palma (muñeca → nudillo
+    // del dedo medio, como fracción del alto del video): lejos de la cámara la mano
+    // solo muestra una vista previa, cerca de la cámara reemplaza los pasos.
+    // sobre umbralCerca pasa a reemplazar, bajo umbralLejos vuelve a vista previa
+    const umbralCerca = 0.3;
+    const umbralLejos = 0.25;
+
+    // estado de cada mano: franja, desde cuándo está en ella, si está cerca
+    // de la cámara, tamaño de la palma y sus 4 pasos en vista previa
     const franjasRanuras = [
-      { pista: null, desde: 0 },
-      { pista: null, desde: 0 },
+      { pista: null, desde: 0, cerca: false, tamano: 0, previa: [] },
+      { pista: null, desde: 0, cerca: false, tamano: 0, previa: [] },
     ];
 
     // muestras de freesound, ver sonidos/CREDITOS.md
@@ -254,6 +275,8 @@
     let detectorManos;
     let manos = [];
     let marcas = [];
+    let medidores = [];
+    let morado;
 
     function seleccionarPista(indice) {
       pistaActiva = indice;
@@ -289,11 +312,18 @@
       botonDeteccion.textContent = deteccionActiva ? "manos: sí" : "manos: no";
       document.body.classList.toggle("con-deteccion", deteccionActiva);
       marcas = [];
+      medidores = [];
       for (const franja of franjasRanuras) franja.pista = null;
       actualizarBotones();
     });
 
     function actualizarBotones() {
+      const previas = new Map();
+      franjasRanuras.forEach((franja, ranura) => {
+        if (franja.pista === null || franja.editando) return;
+        franja.previa.forEach((encendido, d) => previas.set(franja.pista + ":" + (ranura * 4 + d), encendido));
+      });
+
       pistas.forEach((pista, p) => {
         const seleccionada = deteccionActiva
           ? franjasRanuras.some((franja) => franja.pista === p)
@@ -301,6 +331,9 @@
         botonesNombre[p].setAttribute("aria-pressed", String(seleccionada));
         pista.botones.forEach((boton, i) => {
           boton.setAttribute("aria-pressed", String(pista.pasos[i]));
+          const clave = p + ":" + i;
+          boton.classList.toggle("previa", previas.has(clave));
+          boton.classList.toggle("previa-encendida", previas.get(clave) === true);
         });
       });
     }
@@ -391,6 +424,7 @@
 
       const ahora = performance.now();
       marcas = [];
+      medidores = [];
       ranuras.forEach((puntos, ranura) => {
         const franja = franjasRanuras[ranura];
         // ranura sin mano: sus pasos quedan como estaban
@@ -403,21 +437,36 @@
         if (pista !== franja.pista) {
           franja.pista = pista;
           franja.desde = ahora;
+          // la vista previa parte desde lo que ya tiene la pista
+          franja.previa = pistas[pista].pasos.slice(ranura * 4, ranura * 4 + 4);
         }
-        const editando = ahora - franja.desde >= msPermanencia;
-        const estadoPasos = pistas[pista].pasos;
 
         const muneca = puntos[0];
+        franja.tamano = distancia(muneca, puntos[9]) / altoVideo;
+        if (franja.tamano > umbralCerca) franja.cerca = true;
+        else if (franja.tamano < umbralLejos) franja.cerca = false;
+
+        // reemplaza solo si la mano está cerca de la cámara y ya se asentó en su franja
+        franja.editando = franja.cerca && ahora - franja.desde >= msPermanencia;
+        const estadoPasos = pistas[pista].pasos;
+
         const dedosEnPantalla = [...dedos].sort((a, b) => puntos[a.nudillo].x - puntos[b.nudillo].x);
         dedosEnPantalla.forEach((dedo, d) => {
           const paso = ranura * 4 + d;
-          if (editando) {
-            const proporcion = distancia(muneca, puntos[dedo.punta]) / distancia(muneca, puntos[dedo.medio]);
-            if (proporcion > umbralSubir) estadoPasos[paso] = true;
-            else if (proporcion < umbralBajar) estadoPasos[paso] = false;
-          }
-          marcas.push({ x: puntos[dedo.punta].x, y: puntos[dedo.punta].y, paso, pista, editando });
+          const proporcion = distancia(muneca, puntos[dedo.punta]) / distancia(muneca, puntos[dedo.medio]);
+          if (proporcion > umbralSubir) franja.previa[d] = true;
+          else if (proporcion < umbralBajar) franja.previa[d] = false;
+          if (franja.editando) estadoPasos[paso] = franja.previa[d];
+          marcas.push({
+            x: puntos[dedo.punta].x,
+            y: puntos[dedo.punta].y,
+            paso,
+            encendido: franja.previa[d],
+            editando: franja.editando,
+          });
         });
+
+        medidores.push({ x: muneca.x, y: muneca.y, tamano: franja.tamano, editando: franja.editando });
       });
 
       actualizarBotones();
@@ -428,6 +477,7 @@
       const lienzo = createCanvas(contenedor.clientWidth, contenedor.clientWidth * 3 / 4);
       lienzo.parent(contenedor);
       textFont("monospace");
+      morado = color(136, 0, 255);
       textAlign(CENTER, CENTER);
 
       video = createCapture(VIDEO);
@@ -471,14 +521,36 @@
       strokeWeight(4);
       textSize(16);
       for (const marca of marcas) {
-        const encendido = pistas[marca.pista].pasos[marca.paso];
-        // mientras la mano se asienta en una franja nueva, el borde es morado
-        stroke(marca.editando ? (encendido ? 0 : 255) : color(136, 0, 255));
-        fill(encendido ? 255 : 0);
+        const encendido = marca.encendido;
+        // reemplazando: blanco y negro; vista previa: morado
+        if (marca.editando) {
+          stroke(encendido ? 0 : 255);
+          fill(encendido ? 255 : 0);
+        } else {
+          stroke(morado);
+          fill(encendido ? morado : 0);
+        }
         rect(marca.x * escala - lado / 2, marca.y * escala - lado / 2, lado, lado);
         noStroke();
-        fill(encendido ? 0 : 255);
+        fill(marca.editando && encendido ? 0 : 255);
         text(marca.paso + 1, marca.x * escala, marca.y * escala);
+      }
+
+      // medidor de cercanía bajo cada muñeca, con marca en umbralCerca
+      const anchoMedidor = 80;
+      const tope = umbralCerca * 1.5;
+      for (const medidor of medidores) {
+        const x = medidor.x * escala - anchoMedidor / 2;
+        const y = medidor.y * escala + 16;
+        noStroke();
+        fill(0);
+        rect(x, y, anchoMedidor, 12);
+        fill(medidor.editando ? 255 : morado);
+        rect(x, y, anchoMedidor * Math.min(1, medidor.tamano / tope), 12);
+        stroke(255);
+        strokeWeight(2);
+        const xUmbral = x + anchoMedidor * umbralCerca / tope;
+        line(xUmbral, y - 4, xUmbral, y + 16);
       }
     }
 
@@ -497,7 +569,7 @@
         const conMano = franjasRanuras.some((franja) => franja.pista === p);
         const etiqueta = pista.nombre;
         noStroke();
-        fill(conMano ? color(136, 0, 255) : 0);
+        fill(conMano ? morado : 0);
         rect(0, p * altoFranja, textWidth(etiqueta) + 16, 24);
         fill(255);
         text(etiqueta, 8, p * altoFranja + 12);
