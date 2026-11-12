@@ -44,13 +44,29 @@
 
     #pasos {
       display: grid;
-      grid-template-columns: repeat(8, 1fr);
+      grid-template-columns: minmax(7ch, auto) repeat(8, 1fr);
       gap: 8px;
       max-width: 960px;
       margin-top: 8px;
     }
 
-    #pasos button {
+    #pasos button.nombre-pista {
+      font: inherit;
+      text-transform: uppercase;
+      background: #fff;
+      color: #000;
+      border: 4px solid #000;
+      padding: 0 8px;
+      cursor: pointer;
+    }
+
+    #pasos button.nombre-pista[aria-pressed="true"] {
+      background: #000;
+      color: #fff;
+      border-color: #f00;
+    }
+
+    #pasos button.paso {
       font: inherit;
       aspect-ratio: 1;
       background: #000;
@@ -59,12 +75,12 @@
       cursor: pointer;
     }
 
-    #pasos button[aria-pressed="true"] {
+    #pasos button.paso[aria-pressed="true"] {
       background: #fff;
       color: #000;
     }
 
-    #pasos button.actual {
+    #pasos button.paso.actual {
       border-color: #f00;
     }
 
@@ -194,15 +210,33 @@
     const umbralBajar = 1.1;
 
     const cantidadPasos = 8;
-    const estadoPasos = new Array(cantidadPasos).fill(false);
 
-    // hihat cerrado de freesound, ver sonidos/CREDITOS.md
+    // tres pistas en sincronía; las manos editan una a la vez, en este orden
+    const pistas = [
+      { nombre: "hihat", pasos: new Array(cantidadPasos).fill(false), botones: [] },
+      { nombre: "bombo", pasos: new Array(cantidadPasos).fill(false), botones: [] },
+      { nombre: "caja", pasos: new Array(cantidadPasos).fill(false), botones: [] },
+    ];
+
+    // pista que editan las manos; avanza cada vez que las manos vuelven a aparecer
+    let pistaActiva = 0;
+    // true si las manos ya editaron la pista activa en esta aparición
+    let pistaEditada = false;
+    // las manos cuentan como ausentes después de este tiempo sin detección,
+    // para que un parpadeo del detector no cambie de pista
+    const msAusencia = 600;
+    let manosPresentes = false;
+    let ultimaVezConManos = 0;
+
+    // muestras de freesound, ver sonidos/CREDITOS.md
     const archivoHihat = "sonidos/hihat-cerrado.mp3";
+    const archivoBombo = "sonidos/bombo.mp3";
+    const archivoCaja = "sonidos/caja.mp3";
 
     const contenedorPasos = document.getElementById("pasos");
     const botonDeteccion = document.getElementById("deteccion");
     const estado = document.getElementById("estado");
-    const botonesPasos = [];
+    const botonesNombre = [];
 
     let deteccionActiva = true;
     let video;
@@ -210,32 +244,54 @@
     let manos = [];
     let marcas = [];
 
-    for (let i = 0; i < cantidadPasos; i++) {
-      const boton = document.createElement("button");
-      boton.textContent = i + 1;
-      boton.setAttribute("aria-pressed", "false");
-      boton.addEventListener("click", () => {
-        if (deteccionActiva) return;
-        estadoPasos[i] = !estadoPasos[i];
-        actualizarBotones();
-      });
-      contenedorPasos.appendChild(boton);
-      botonesPasos.push(boton);
+    function seleccionarPista(indice) {
+      pistaActiva = indice;
+      pistaEditada = false;
+      actualizarBotones();
     }
+
+    pistas.forEach((pista, p) => {
+      const nombre = document.createElement("button");
+      nombre.className = "nombre-pista";
+      nombre.textContent = pista.nombre;
+      nombre.addEventListener("click", () => seleccionarPista(p));
+      contenedorPasos.appendChild(nombre);
+      botonesNombre.push(nombre);
+
+      for (let i = 0; i < cantidadPasos; i++) {
+        const boton = document.createElement("button");
+        boton.className = "paso";
+        boton.textContent = i + 1;
+        boton.setAttribute("aria-label", pista.nombre + " paso " + (i + 1));
+        boton.addEventListener("click", () => {
+          if (deteccionActiva) return;
+          pista.pasos[i] = !pista.pasos[i];
+          actualizarBotones();
+        });
+        contenedorPasos.appendChild(boton);
+        pista.botones.push(boton);
+      }
+    });
 
     botonDeteccion.addEventListener("click", () => {
       deteccionActiva = !deteccionActiva;
       botonDeteccion.setAttribute("aria-pressed", String(deteccionActiva));
       botonDeteccion.textContent = deteccionActiva ? "manos: sí" : "manos: no";
       document.body.classList.toggle("con-deteccion", deteccionActiva);
-      if (!deteccionActiva) marcas = [];
+      marcas = [];
+      manosPresentes = false;
+      pistaEditada = false;
     });
 
     function actualizarBotones() {
-      botonesPasos.forEach((boton, i) => {
-        boton.setAttribute("aria-pressed", String(estadoPasos[i]));
+      pistas.forEach((pista, p) => {
+        botonesNombre[p].setAttribute("aria-pressed", String(p === pistaActiva));
+        pista.botones.forEach((boton, i) => {
+          boton.setAttribute("aria-pressed", String(pista.pasos[i]));
+        });
       });
     }
+    actualizarBotones();
 
     // secuenciador: recorre los pasos 1-8 en loop, un paso por corchea (8 pasos = 1 compás de 4/4)
     const botonTocar = document.getElementById("tocar");
@@ -244,14 +300,24 @@
     const transporte = Tone.getTransport();
     const hihat = new Tone.Player(archivoHihat).toDestination();
 
+    const bombo = new Tone.Player(archivoBombo).toDestination();
+    const caja = new Tone.Player(archivoCaja).toDestination();
+
+    // una muestra por pista, en el mismo orden que pistas
+    const muestras = [hihat, bombo, caja];
+
     function marcarPasoActual(pasoActual) {
-      botonesPasos.forEach((boton, i) => {
-        boton.classList.toggle("actual", i === pasoActual);
-      });
+      for (const pista of pistas) {
+        pista.botones.forEach((boton, i) => {
+          boton.classList.toggle("actual", i === pasoActual);
+        });
+      }
     }
 
     const secuencia = new Tone.Sequence((tiempo, paso) => {
-      if (estadoPasos[paso] && hihat.loaded) hihat.start(tiempo);
+      pistas.forEach((pista, p) => {
+        if (pista.pasos[paso] && muestras[p].loaded) muestras[p].start(tiempo);
+      });
       Tone.getDraw().schedule(() => marcarPasoActual(paso), tiempo);
     }, [0, 1, 2, 3, 4, 5, 6, 7], "8n");
     secuencia.start(0);
@@ -288,6 +354,23 @@
         .map((mano) => mano.keypoints.map(espejo))
         .sort((a, b) => a[0].x - b[0].x);
 
+      const ahora = performance.now();
+      if (manosEnPantalla.length === 0) {
+        // sin manos: la pista queda como estaba
+        if (manosPresentes && ahora - ultimaVezConManos > msAusencia) manosPresentes = false;
+        marcas = [];
+        return;
+      }
+
+      // las manos vuelven a aparecer: pasar a la siguiente pista
+      if (!manosPresentes) {
+        if (pistaEditada) pistaActiva = (pistaActiva + 1) % pistas.length;
+        manosPresentes = true;
+      }
+      ultimaVezConManos = ahora;
+      pistaEditada = true;
+      const estadoPasos = pistas[pistaActiva].pasos;
+
       // ranura 0 = pasos 1-4, ranura 1 = pasos 5-8
       let ranuras = [null, null];
       if (manosEnPantalla.length >= 2) {
@@ -299,10 +382,8 @@
 
       marcas = [];
       ranuras.forEach((puntos, ranura) => {
-        if (!puntos) {
-          for (let d = 0; d < dedos.length; d++) estadoPasos[ranura * 4 + d] = false;
-          return;
-        }
+        // ranura sin mano: sus pasos quedan como estaban
+        if (!puntos) return;
         const muneca = puntos[0];
         const dedosEnPantalla = [...dedos].sort((a, b) => puntos[a.nudillo].x - puntos[b.nudillo].x);
         dedosEnPantalla.forEach((dedo, d) => {
@@ -362,13 +443,24 @@
       strokeWeight(4);
       textSize(16);
       for (const marca of marcas) {
-        const encendido = estadoPasos[marca.paso];
+        const encendido = pistas[pistaActiva].pasos[marca.paso];
         stroke(encendido ? 0 : 255);
         fill(encendido ? 255 : 0);
         rect(marca.x * escala - lado / 2, marca.y * escala - lado / 2, lado, lado);
         noStroke();
         fill(encendido ? 0 : 255);
         text(marca.paso + 1, marca.x * escala, marca.y * escala);
+      }
+
+      if (deteccionActiva) {
+        const etiqueta = "pista: " + pistas[pistaActiva].nombre;
+        noStroke();
+        fill(0);
+        rect(0, 0, textWidth(etiqueta) + 32, 40);
+        fill(255);
+        textAlign(LEFT, CENTER);
+        text(etiqueta, 16, 20);
+        textAlign(CENTER, CENTER);
       }
     }
 

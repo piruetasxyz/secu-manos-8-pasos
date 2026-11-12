@@ -7,3 +7,19 @@
 - fuente: https://freesound.org/people/pjcohen/sounds/45664/
 - licencia: Creative Commons 0 (dominio público), https://creativecommons.org/publicdomain/zero/1.0/
 - archivo descargado: versión de previsualización mp3 de alta calidad de freesound
+
+## bombo.mp3
+
+- título original: Fractanimal_Acoustic_Drum_Kit_Kick_7.wav
+- autor: johnnydekk
+- fuente: https://freesound.org/people/johnnydekk/sounds/581461/
+- licencia: Creative Commons 0 (dominio público), https://creativecommons.org/publicdomain/zero/1.0/
+- archivo descargado: versión de previsualización mp3 de alta calidad de freesound
+
+## caja.mp3
+
+- título original: Fractanimal_Acoustic_Drum_Kit_Snare_1.wav
+- autor: johnnydekk
+- fuente: https://freesound.org/people/johnnydekk/sounds/581469/
+- licencia: Creative Commons 0 (dominio público), https://creativecommons.org/publicdomain/zero/1.0/
+- archivo descargado: versión de previsualización mp3 de alta calidad de freesound
