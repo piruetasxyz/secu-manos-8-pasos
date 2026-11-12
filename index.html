@@ -217,22 +217,27 @@
 
     const cantidadPasos = 8;
 
-    // tres pistas en sincronía; las manos editan una a la vez, en este orden
+    // tres pistas en sincronía, en el mismo orden que las franjas de la pantalla:
+    // manos arriba = hihat, al medio = caja, abajo = bombo
     const pistas = [
       { nombre: "hihat", pasos: new Array(cantidadPasos).fill(false), botones: [] },
-      { nombre: "bombo", pasos: new Array(cantidadPasos).fill(false), botones: [] },
       { nombre: "caja", pasos: new Array(cantidadPasos).fill(false), botones: [] },
+      { nombre: "bombo", pasos: new Array(cantidadPasos).fill(false), botones: [] },
     ];
 
-    // pista que editan las manos; avanza cada vez que las manos vuelven a aparecer
+    // pista que editan los botones cuando la detección está apagada
     let pistaActiva = 0;
-    // true si las manos ya editaron la pista activa en esta aparición
-    let pistaEditada = false;
-    // las manos cuentan como ausentes después de este tiempo sin detección,
-    // para que un parpadeo del detector no cambie de pista
-    const msAusencia = 600;
-    let manosPresentes = false;
-    let ultimaVezConManos = 0;
+
+    // cada mano tiene su franja; para cambiar de franja tiene que pasar
+    // margenFranja (fracción del alto) más allá del borde, y edita recién
+    // después de msPermanencia en la franja nueva, así al cruzar una franja
+    // de camino a otra no la modifica
+    const margenFranja = 0.04;
+    const msPermanencia = 300;
+    const franjasRanuras = [
+      { pista: null, desde: 0 },
+      { pista: null, desde: 0 },
+    ];
 
     // muestras de freesound, ver sonidos/CREDITOS.md
     const archivoHihat = "sonidos/hihat-cerrado.mp3";
@@ -252,7 +257,6 @@
 
     function seleccionarPista(indice) {
       pistaActiva = indice;
-      pistaEditada = false;
       actualizarBotones();
     }
 
@@ -285,13 +289,16 @@
       botonDeteccion.textContent = deteccionActiva ? "manos: sí" : "manos: no";
       document.body.classList.toggle("con-deteccion", deteccionActiva);
       marcas = [];
-      manosPresentes = false;
-      pistaEditada = false;
+      for (const franja of franjasRanuras) franja.pista = null;
+      actualizarBotones();
     });
 
     function actualizarBotones() {
       pistas.forEach((pista, p) => {
-        botonesNombre[p].setAttribute("aria-pressed", String(p === pistaActiva));
+        const seleccionada = deteccionActiva
+          ? franjasRanuras.some((franja) => franja.pista === p)
+          : p === pistaActiva;
+        botonesNombre[p].setAttribute("aria-pressed", String(seleccionada));
         pista.botones.forEach((boton, i) => {
           boton.setAttribute("aria-pressed", String(pista.pasos[i]));
         });
@@ -310,7 +317,7 @@
     const caja = new Tone.Player(archivoCaja).toDestination();
 
     // una muestra por pista, en el mismo orden que pistas
-    const muestras = [hihat, bombo, caja];
+    const muestras = [hihat, caja, bombo];
 
     function marcarPasoActual(pasoActual) {
       for (const pista of pistas) {
@@ -353,29 +360,25 @@
       return Math.hypot(a.x - b.x, a.y - b.y);
     }
 
-    // convierte las manos detectadas en los 8 pasos, de izquierda a derecha en pantalla
-    function leerPasos(anchoVideo) {
+    // franja (pista) de una mano según su altura, con margen para no parpadear en los bordes
+    function franjaDeMano(puntos, altoVideo, pistaAnterior) {
+      // centro de la palma: promedio de muñeca y nudillo del dedo medio
+      const altura = (puntos[0].y + puntos[9].y) / 2 / altoVideo;
+      const candidata = Math.min(pistas.length - 1, Math.max(0, Math.floor(altura * pistas.length)));
+      if (pistaAnterior === null || candidata === pistaAnterior) return candidata;
+      const bordeArriba = pistaAnterior / pistas.length;
+      const bordeAbajo = (pistaAnterior + 1) / pistas.length;
+      if (altura < bordeArriba - margenFranja || altura > bordeAbajo + margenFranja) return candidata;
+      return pistaAnterior;
+    }
+
+    // convierte las manos detectadas en los 8 pasos, de izquierda a derecha en pantalla;
+    // la altura de cada mano elige la pista que edita
+    function leerPasos(anchoVideo, altoVideo) {
       const espejo = (p) => ({ x: anchoVideo - p.x, y: p.y });
       const manosEnPantalla = manos
         .map((mano) => mano.keypoints.map(espejo))
         .sort((a, b) => a[0].x - b[0].x);
-
-      const ahora = performance.now();
-      if (manosEnPantalla.length === 0) {
-        // sin manos: la pista queda como estaba
-        if (manosPresentes && ahora - ultimaVezConManos > msAusencia) manosPresentes = false;
-        marcas = [];
-        return;
-      }
-
-      // las manos vuelven a aparecer: pasar a la siguiente pista
-      if (!manosPresentes) {
-        if (pistaEditada) pistaActiva = (pistaActiva + 1) % pistas.length;
-        manosPresentes = true;
-      }
-      ultimaVezConManos = ahora;
-      pistaEditada = true;
-      const estadoPasos = pistas[pistaActiva].pasos;
 
       // ranura 0 = pasos 1-4, ranura 1 = pasos 5-8
       let ranuras = [null, null];
@@ -386,18 +389,34 @@
         ranuras[puntos[0].x < anchoVideo / 2 ? 0 : 1] = puntos;
       }
 
+      const ahora = performance.now();
       marcas = [];
       ranuras.forEach((puntos, ranura) => {
+        const franja = franjasRanuras[ranura];
         // ranura sin mano: sus pasos quedan como estaban
-        if (!puntos) return;
+        if (!puntos) {
+          franja.pista = null;
+          return;
+        }
+
+        const pista = franjaDeMano(puntos, altoVideo, franja.pista);
+        if (pista !== franja.pista) {
+          franja.pista = pista;
+          franja.desde = ahora;
+        }
+        const editando = ahora - franja.desde >= msPermanencia;
+        const estadoPasos = pistas[pista].pasos;
+
         const muneca = puntos[0];
         const dedosEnPantalla = [...dedos].sort((a, b) => puntos[a.nudillo].x - puntos[b.nudillo].x);
         dedosEnPantalla.forEach((dedo, d) => {
           const paso = ranura * 4 + d;
-          const proporcion = distancia(muneca, puntos[dedo.punta]) / distancia(muneca, puntos[dedo.medio]);
-          if (proporcion > umbralSubir) estadoPasos[paso] = true;
-          else if (proporcion < umbralBajar) estadoPasos[paso] = false;
-          marcas.push({ x: puntos[dedo.punta].x, y: puntos[dedo.punta].y, paso });
+          if (editando) {
+            const proporcion = distancia(muneca, puntos[dedo.punta]) / distancia(muneca, puntos[dedo.medio]);
+            if (proporcion > umbralSubir) estadoPasos[paso] = true;
+            else if (proporcion < umbralBajar) estadoPasos[paso] = false;
+          }
+          marcas.push({ x: puntos[dedo.punta].x, y: puntos[dedo.punta].y, paso, pista, editando });
         });
       });
 
@@ -442,32 +461,48 @@
       image(video, 0, 0, width, height);
       pop();
 
-      if (deteccionActiva) leerPasos(anchoVideo);
+      if (deteccionActiva) {
+        leerPasos(anchoVideo, altoVideo);
+        dibujarFranjas();
+      }
 
       const escala = width / anchoVideo;
       const lado = 28;
       strokeWeight(4);
       textSize(16);
       for (const marca of marcas) {
-        const encendido = pistas[pistaActiva].pasos[marca.paso];
-        stroke(encendido ? 0 : 255);
+        const encendido = pistas[marca.pista].pasos[marca.paso];
+        // mientras la mano se asienta en una franja nueva, el borde es morado
+        stroke(marca.editando ? (encendido ? 0 : 255) : color(136, 0, 255));
         fill(encendido ? 255 : 0);
         rect(marca.x * escala - lado / 2, marca.y * escala - lado / 2, lado, lado);
         noStroke();
         fill(encendido ? 0 : 255);
         text(marca.paso + 1, marca.x * escala, marca.y * escala);
       }
+    }
 
-      if (deteccionActiva) {
-        const etiqueta = "pista: " + pistas[pistaActiva].nombre;
-        noStroke();
-        fill(0);
-        rect(0, 0, textWidth(etiqueta) + 32, 40);
-        fill(255);
-        textAlign(LEFT, CENTER);
-        text(etiqueta, 16, 20);
-        textAlign(CENTER, CENTER);
+    // líneas entre franjas y el nombre de cada pista a la izquierda
+    function dibujarFranjas() {
+      const altoFranja = height / pistas.length;
+      stroke(255);
+      strokeWeight(2);
+      for (let p = 1; p < pistas.length; p++) {
+        line(0, p * altoFranja, width, p * altoFranja);
       }
+
+      textSize(12);
+      textAlign(LEFT, CENTER);
+      pistas.forEach((pista, p) => {
+        const conMano = franjasRanuras.some((franja) => franja.pista === p);
+        const etiqueta = pista.nombre;
+        noStroke();
+        fill(conMano ? color(136, 0, 255) : 0);
+        rect(0, p * altoFranja, textWidth(etiqueta) + 16, 24);
+        fill(255);
+        text(etiqueta, 8, p * altoFranja + 12);
+      });
+      textAlign(CENTER, CENTER);
     }
 
     function windowResized() {
